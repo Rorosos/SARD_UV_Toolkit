@@ -2,12 +2,14 @@
 
 
 def register():
-    from . import operators
+    from . import island_ui, operators
 
     operators.register()
+    island_ui.register()
 
 
 def unregister():
-    from . import operators
+    from . import island_ui, operators
 
+    island_ui.unregister()
     operators.unregister()

@@ -30,6 +30,7 @@ class Unit:
     flags: int = 0
     anchors: tuple = ()
     boundary: tuple = ()
+    surface_area: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -40,6 +41,7 @@ class PackConfig:
     border: int
     passes: int
     scale: bool
+    seed: int = 0
 
     def validate(self):
         if 2 * self.border >= self.short_side:
@@ -503,13 +505,14 @@ def _trace_positions(shape, neighbors, gap):
                 yield point
 
 
-def _candidates(board, shapes, rng, pass_index, detailed=False):
+def _candidates(board, shapes, rng, pass_index, detailed=False, random_start=False):
     left, bottom, right, top = board.inside_box
     preference = ((0, 0), (1, 0), (0, 1), (1, 1))[pass_index % 4]
     bias = 0.5 if pass_index == 0 else rng.uniform(0.15, 0.85)
     neighbors = _neighbors(board, rng)
     gap = board.gap + 2 * board.guard
     ranks = []
+    starters = []
     for shape in shapes:
         x0, y0, x1, y1 = shape.box
         min_x, max_x = left - x0, right - x1
@@ -538,13 +541,17 @@ def _candidates(board, shapes, rng, pass_index, detailed=False):
                 if (c - a) * (d - b) > _box_area(shape.box) * 1.25:
                     for start, end in _contact_traces(shape, other, gap, 3):
                         proposals.append((start + end) / 2)
-            for _ in range(12):
-                proposals.append(complex(rng.uniform(min_x, max_x), rng.uniform(min_y, max_y)))
+            random_positions = [complex(rng.uniform(min_x, max_x), rng.uniform(min_y, max_y))
+                                for _ in range(32 if random_start else 12)]
+            if random_start:
+                starters.extend(Pose(shape, point) for point in random_positions)
+            proposals.extend(random_positions)
 
         # Clamping finds additional edge contacts while preserving continuous UV coordinates.
         ranks.extend(_rank_positions(proposals, shape, board, (min_x, max_x, min_y, max_y), preference, bias))
     ranks.sort(key=lambda value: value[0])
-    return [Pose(shape, delta) for _, shape, delta in ranks]
+    rng.shuffle(starters)
+    return starters + [Pose(shape, delta) for _, shape, delta in ranks]
 
 
 def _obstacles(config, obstacles, outlines=True):
@@ -689,12 +696,19 @@ def pack_iter(units, obstacles, config, backend):
     boundary_points = [_support_hull(unit) for unit in units]
     outlines = [_outline_edges(unit) for unit in units]
     axes = [_edge_angles(edges) for edges in outlines]
+    resizable = [i for i, u in enumerate(units) if not u.flags & SCALE and len(u.anchors) < 2]
+    natural = [i for i in resizable if units[i].surface_area > 0 and units[i].area > 0]
+    normalizers = [1.0] * len(units)
+    if natural:
+        density_sq = sum(units[i].area for i in natural) / sum(units[i].surface_area for i in natural)
+        for i in natural:
+            normalizers[i] = math.sqrt(density_sq * units[i].surface_area / units[i].area)
     dimensions = []
-    for unit in units:
+    for unit, normalizer in zip(units, normalizers):
         x0, y0, x1, y1 = bounds(tuple(p for triangle in unit.triangles for p in triangle))
-        dimensions.append((x1 - x0, y1 - y0))
-    scalable = [i for i, u in enumerate(units) if config.scale and not u.flags & SCALE and len(u.anchors) < 2]
-    target_area = sum(units[index].area for index in scalable)
+        dimensions.append(((x1 - x0) * normalizer, (y1 - y0) * normalizer))
+    scalable = set(resizable) if config.scale else set()
+    target_area = sum(units[i].area * normalizers[i]**2 for i in scalable)
     usable = (1 - 2 * config.border / config.width) * (1 - 2 * config.border / config.height)
     estimate = math.sqrt(0.58 * usable / max(1e-22, target_area))
     max_dimension = max((max(dimensions[index]) for index in scalable), default=0.0)
@@ -713,7 +727,7 @@ def pack_iter(units, obstacles, config, backend):
         return _shape(triangles, footprint, multiplier, edges)
 
     best = None
-    if validate_layout(units, obstacles, original, config):
+    if all(abs(n - 1) < EPSILON for n in normalizers) and validate_layout(units, obstacles, original, config):
         original_poses = [Pose(shape_at(i, 1.0, 0.0), _metric(unit.anchors[0] if unit.anchors else unit.center, metric))
                           for i, unit in enumerate(units)]
         best = _result(units, original_poses, movable, 1.0, metric)
@@ -732,27 +746,29 @@ def pack_iter(units, obstacles, config, backend):
     if best is not None and may_grow:
         consider(best)
 
-    def attempt(scale, index):
-        rng = random.Random(0x71A903 + index)
+    def attempt(scale, index, progress=None, random_start=False):
+        rng = random.Random(config.seed ^ (0x71A903 + index))
         board = Board(config)
         for pose in fixed:
             board.add(pose)
         ordered = _place_order(movable, units, dimensions, index, rng, best.order if best else ())
-        sequence = anchors + ordered
+        constrained = sorted(anchors, key=lambda i: (-len(units[i].anchors), -units[i].flags.bit_count(),
+                                                     -max(dimensions[i])**2 * rng.uniform(0.8, 1.2)))
+        sequence = constrained + ordered
         layout = [None] * len(units)
         placed = 0
         rearranged = False
         while placed < len(sequence):
             i = sequence[placed]
-            yield index + placed / len(units)
+            yield index + placed / len(units) if progress is None else progress
             unit = units[i]
-            scale_here = 1.0 if unit.flags & SCALE or len(unit.anchors) > 1 else scale
+            scale_here = normalizers[i] * (scale if i in scalable else 1.0)
             shapes = [shape_at(i, scale_here, angle) for angle in _angles(unit, axes[i], index, rng)]
             if unit.anchors:
                 center = _metric(unit.anchors[0], metric)
                 candidates = [pose for shape in shapes if board.contains(pose := Pose(shape, center))]
             else:
-                candidates = _candidates(board, shapes, rng, index)
+                candidates = _candidates(board, shapes, rng, index, random_start=random_start and placed <= len(anchors) + 1)
             pose = backend.find(board, candidates) if candidates else None
             if pose is None and not unit.anchors:
                 if not unit.flags & ROTATION:
@@ -788,6 +804,17 @@ def pack_iter(units, obstacles, config, backend):
 
     failed_scale = math.inf
     factor = min(ceiling, estimate)
+    if best is None:
+        # Establish a valid starting layout independently of the input UV positions.
+        # Early movable units sample the whole tile; placement then returns to contact search.
+        seed_scale = min(1.0, factor) * 0.82
+        for restart in range(4):
+            seed = yield from attempt(seed_scale if scalable else 1.0, restart + 1, 0.0, random_start=True)
+            if seed is not None and validate_layout(units, obstacles, seed.transforms, config):
+                best = seed
+                consider(seed)
+                break
+            seed_scale *= 0.62
     for index in range(config.passes):
         if not scalable:
             factor = 1.0
@@ -802,7 +829,7 @@ def pack_iter(units, obstacles, config, backend):
             cap = min(ceiling, failed_scale)
             growth = min(1.12, math.sqrt(max(1.0, cap / best.scale)))
             factor = min(ceiling, best.scale * growth)
-        candidate = yield from attempt(factor, index)
+        candidate = yield from attempt(factor, index, random_start=index % 5 == 3)
         if candidate is not None and (best is None or candidate.score > best.score):
             if validate_layout(units, obstacles, candidate.transforms, config):
                 best = candidate
@@ -817,6 +844,18 @@ def pack_iter(units, obstacles, config, backend):
         if candidate is None and (best is None or factor > best.scale):
             failed_scale = min(failed_scale, factor)
         yield index + 1
+    if winner is None:
+        # Short searches can exhaust their requested passes before finding a feasible
+        # seed. Retry with wider size reductions and independent placements.
+        recovery = min(factor, seed_scale)
+        for restart in range(6):
+            seed = yield from attempt(recovery if scalable else 1.0, config.passes + 8 + restart,
+                                      float(config.passes), random_start=restart % 2 == 0)
+            if seed is not None:
+                consider(seed)
+                if winner is not None:
+                    break
+            recovery *= 0.48
     if source is not None:
         compacted = yield from _compact(units, fixed, config, backend, source, movable, shape_at, obstacles)
         if compacted is not source:

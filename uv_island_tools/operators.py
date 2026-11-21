@@ -1,6 +1,7 @@
 """Blender operators, scene settings and UV Editor panel."""
 
 import time
+from random import getrandbits
 
 import bpy
 from bpy.props import BoolProperty, EnumProperty, FloatProperty, IntProperty, PointerProperty, StringProperty
@@ -8,7 +9,7 @@ from bpy.props import BoolProperty, EnumProperty, FloatProperty, IntProperty, Po
 from . import blender_data as data
 from . import packing
 from .cuda_backend import CudaBackend
-from .geometry import POSITION, ROTATION, SCALE, find_match
+from .geometry import EPSILON, POSITION, ROTATION, SCALE, match_islands, vertex_correspondence
 from .gpu_backend import AutoBackend, GPUBackend, GPUUnavailable, HybridBackend
 from .native_cpu import NativeCPUBackend
 
@@ -49,15 +50,15 @@ class UVIT_Settings(bpy.types.PropertyGroup):
                ("CUDA", "CUDA", "Проверять позиции напрямую через драйвер NVIDIA"),
                ("HYBRID", "CPU + GPU", "Проверять первые позиции на CPU, а сложные партии шейдером Blender")],
     )
-    allow_scale: BoolProperty(name="Масштабировать", default=True,
-                              description="Применять общий коэффициент к островам без фиксации размера")
+    allow_scale: BoolProperty(name="Общий масштаб", default=True,
+                              description="Подобрать общий масштаб после выравнивания относительных размеров по 3D-площади")
     tolerance: FloatProperty(name="Допуск", default=1.0, min=0.0, max=25.0,
                              subtype="PERCENTAGE", precision=2,
-                             description="Отклонение контура в процентах от диагонали эталона")
+                             description="Отклонение UV-вершин в процентах от диагонали эталона")
 
     def pack_config(self):
         return packing.PackConfig(self.texture_width, self.texture_height, self.gap, self.border,
-                                  self.passes, self.allow_scale)
+                                  self.passes, self.allow_scale, seed=getrandbits(32))
 
 
 class UVIT_Runtime(bpy.types.PropertyGroup):
@@ -80,19 +81,19 @@ class _UVOperator:
 class UVIT_OT_select_similar(_UVOperator, bpy.types.Operator):
     bl_idname = "uv.uvit_select_similar"
     bl_label = "Выбрать схожие"
-    bl_description = "Выделить видимые острова с похожим контуром"
+    bl_description = "Выделить видимые острова с той же топологией и близким расположением UV-вершин"
     bl_options = {"REGISTER", "UNDO"}
 
     def execute(self, context):
         try:
             snapshot = data.read_snapshot(context)
-            references = [island.contour for island in snapshot.islands if island.selected and island.contour]
+            references = [island for island in snapshot.islands if island.selected and island.contour]
             if not references:
                 return self.warn("Выделите остров с замкнутым UV-контуром")
             tolerance = context.scene.uvit_settings.tolerance / 100
             matches = [
                 island for island in snapshot.islands if island.visible_faces and not island.selected
-                and any(find_match(island.contour, reference, tolerance) is not None for reference in references)
+                and any(match_islands(island, reference, tolerance) is not None for reference in references)
             ]
             if not matches:
                 return self.warn("Дополнительные острова в пределах допуска не найдены")
@@ -108,6 +109,24 @@ def _snap_order(group):
     return not bool(group.anchors), not island.active, -island.area, island.state.mesh.name_full, island.faces[0]
 
 
+def _snap_vertices(source, reference, transform, tolerance):
+    limit = max(reference.contour.diagonal * tolerance, 1e-9)
+    # Exact snapping can change shape slightly. Locked members only accept the
+    # floating-point correction of an otherwise valid similarity.
+    if source.flags:
+        limit = min(limit, EPSILON)
+    targets = {}
+    for island in source.islands:
+        a, b = island.topology, reference.topology
+        if a.signature != b.signature:
+            return None
+        mapping = vertex_correspondence(a, b, transform, limit)
+        if mapping is None:
+            return None
+        targets[island.key] = {vertex: b.vertices[index][1] for vertex, index in zip(a.vertices, mapping)}
+    return targets
+
+
 class UVIT_OT_snap(_UVOperator, bpy.types.Operator):
     bl_idname = "uv.uvit_snap"
     bl_label = "Snap"
@@ -119,39 +138,40 @@ class UVIT_OT_snap(_UVOperator, bpy.types.Operator):
             snapshot = data.read_snapshot(context)
             tolerance = context.scene.uvit_settings.tolerance / 100
             selected = [group for group in snapshot.groups if group.selected]
-            pending = sorted((group for group in selected if group.available), key=_snap_order)
+            pending = sorted((group for group in selected if group.available
+                              and not any(i.cluster_id for i in group.islands)), key=_snap_order)
             if len(pending) < 2:
-                return self.warn("Выделите хотя бы два доступных острова из разных групп")
-            transforms, memberships = {}, {}
+                return self.warn("Выделите хотя бы два доступных острова вне кластеров")
+            vertices, memberships = {}, {}
             merged = 0
             participants = set()
             locked = set()
             while pending:
                 target = pending.pop(0)
-                reference = target.representative.contour
-                if reference is None:
+                reference = target.representative
+                if reference.contour is None:
                     continue
                 remaining = []
                 aligned = []
                 for source in pending:
-                    contour = source.representative.contour
-                    best = find_match(contour, reference, tolerance, source.flags, source.anchors)
-                    if best is None:
-                        if (source.flags or source.anchors) and find_match(contour, reference, tolerance) is not None:
+                    best = match_islands(source.representative, reference, tolerance, source.flags, source.anchors)
+                    targets = _snap_vertices(source, reference, best[1], tolerance) if best else None
+                    if targets is None:
+                        if source.flags and match_islands(source.representative, reference, tolerance) is not None:
                             locked.add(source.key)
                         remaining.append(source)
                         continue
-                    aligned.append((source, best[1]))
+                    aligned.append((source, targets))
                 pending = remaining
                 if not aligned:
                     continue
                 group_id = target.key if isinstance(target.key, bytes) else data.group_token()
                 for island in target.islands:
-                    memberships[island.key] = data.membership(group_id, island)
-                for source, transform in aligned:
+                    memberships[island.key] = data.membership(group_id, island.storage)
+                for source, targets in aligned:
+                    vertices.update(targets)
                     for island in source.islands:
-                        transforms[island.key] = transform
-                        memberships[island.key] = data.membership(group_id, island)
+                        memberships[island.key] = data.membership(group_id, island.storage)
                     participants.add(source.key)
                 participants.add(target.key)
                 merged += 1
@@ -160,7 +180,7 @@ class UVIT_OT_snap(_UVOperator, bpy.types.Operator):
                 details += f" (из-за фиксаций: {len(locked - participants)})"
             if not merged:
                 return self.warn(f"Допустимых совпадений нет. {details}")
-            data.apply_changes(snapshot.islands, transforms=transforms, memberships=memberships)
+            data.apply_changes(snapshot.islands, uv_targets=vertices, memberships=memberships)
         except ValueError as error:
             return self.warn(str(error))
         self.report({"INFO"}, f"Snap-групп: {merged}. {details}")
@@ -246,7 +266,7 @@ class UVIT_OT_pack(_UVOperator, bpy.types.Operator):
         self.units = []
         self.obstacles = []
         self.skipped = 0
-        for group in self.snapshot.groups:
+        for group in self.snapshot.packing_groups:
             wanted = group.selected if settings.scope == "SELECTED" else group.visible
             unit = group.unit()
             if wanted and group.available and unit.area > 0:
@@ -256,7 +276,7 @@ class UVIT_OT_pack(_UVOperator, bpy.types.Operator):
                 self.obstacles.append(unit)
                 self.skipped += int(wanted)
         if not self.units:
-            raise ValueError("Нет доступных UV-островов для упаковки. Проверьте выделение и Snap-группы")
+            raise ValueError("Нет доступных UV-островов для упаковки. Проверьте выделение, кластеры и Snap-группы")
         try:
             units, obstacles = self.units, self.obstacles
             factories = {

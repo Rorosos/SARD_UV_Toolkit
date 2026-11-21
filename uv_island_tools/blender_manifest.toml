@@ -1,6 +1,6 @@
 schema_version = "1.0.0"
 id = "uv_island_tools"
-version = "1.3.0"
+version = "1.4.0"
 name = "UV Island Tools"
 tagline = "Pack, stack and lock UV islands with CPU and GPU"
 maintainer = "UV Island Tools contributors"

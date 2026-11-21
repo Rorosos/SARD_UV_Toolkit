@@ -1,6 +1,8 @@
 """UV geometry, similarity transforms and contour matching."""
 
 from dataclasses import dataclass
+from collections import Counter
+from functools import cached_property
 import math
 
 import numpy as np
@@ -210,7 +212,7 @@ def _contour_error(source, target, transform, limit):
     return max(error, *(distance for _, distance in matches.values()))
 
 
-def find_match(source, target, tolerance, flags=0, anchors=()):
+def find_match(source, target, tolerance, flags=0, anchors=(), evaluate=None):
     """Fit the UV contours, returning (relative deviation, transformation)."""
     if source is None or target is None or len(source.rings) != len(target.rings):
         return None
@@ -227,7 +229,10 @@ def find_match(source, target, tolerance, flags=0, anchors=()):
     if len(anchors) > 1 or flags & ROTATION and anchors and flags & SCALE:
         identity = Transform()
         error = _contour_error(source, target, identity, limit)
-        return (error / reference, identity) if error <= limit else None
+        if error > limit:
+            return None
+        error, transform = evaluate(identity, limit) if evaluate else (error, identity)
+        return (error / reference, transform) if error <= limit else None
 
     a, b = source.outer_samples, target.outer_samples
     correlation = np.fft.ifft(np.fft.fft(b - b.mean()) * np.fft.fft(a - a.mean()).conj())
@@ -237,7 +242,7 @@ def find_match(source, target, tolerance, flags=0, anchors=()):
     )]
     peaks.sort(key=lambda index: (-likelihood[index], index))
     result = None
-    for index in peaks[:8]:
+    for index in peaks if evaluate else peaks[:8]:
         prev, mid, following = (likelihood[(index + step) % len(a)] for step in (-1, 0, 1))
         curvature = prev - 2 * mid + following
         fraction = float(np.clip((prev - following) / (2 * curvature), -0.5, 0.5)) if curvature < 0 else 0
@@ -251,10 +256,121 @@ def find_match(source, target, tolerance, flags=0, anchors=()):
         original = source.samples[0]
         for _ in range(5):
             error = _contour_error(source, target, transform, limit)
-            if error <= limit and (result is None or error / reference < result[0]):
-                result = error / reference, transform
-                if error <= max(reference * 1e-7, 1e-9):
-                    return result
+            if error <= limit:
+                error, fitted = evaluate(transform, limit) if evaluate else (error, transform)
+                if error <= limit and (result is None or error / reference < result[0]):
+                    result = error / reference, fitted
+                    if error <= max(reference * 1e-7, 1e-9):
+                        return result
             closest = _nearest_on_segments(transform(original), *target.segments[0])
             transform = _fit(original, closest, flags, anchors)
     return result
+
+
+def _face_cycle(face):
+    start = face.index(min(face))
+    cycle = face[start:] + face[:start]
+    return min(cycle, cycle[:1] + cycle[:0:-1])
+
+
+@dataclass
+class UVTopology:
+    vertices: tuple  # (mesh vertex index, UV)
+    faces: tuple     # indices of UV vertices in each face
+
+    @cached_property
+    def points(self):
+        return np.asarray([point for _, point in self.vertices], dtype=np.complex128)
+
+    @cached_property
+    def vertex_types(self):
+        sizes = [[] for _ in self.vertices]
+        neighbors = [Counter() for _ in self.vertices]
+        for face in self.faces:
+            for index, left in enumerate(face):
+                right = face[index - 1]
+                neighbors[left][right] += 1
+                neighbors[right][left] += 1
+                sizes[left].append(len(face))
+        return tuple((tuple(sorted(faces)), tuple(sorted(edges.values())))
+                     for faces, edges in zip(sizes, neighbors))
+
+    @cached_property
+    def signature(self):
+        return Counter(self.vertex_types)
+
+    @cached_property
+    def face_cycles(self):
+        return Counter(_face_cycle(face) for face in self.faces)
+
+    @cached_property
+    def by_type(self):
+        result = {}
+        for index, kind in enumerate(self.vertex_types):
+            result.setdefault(kind, []).append(index)
+        return {kind: np.asarray(indices) for kind, indices in result.items()}
+
+
+def vertex_correspondence(source, target, transform, limit):
+    """Pair nearest compatible UV vertices and check the complete face graph."""
+    mapped = np.empty(len(source.vertices), dtype=np.intp)
+    points = transform(source.points)
+    for kind, indices in source.by_type.items():
+        choices = target.by_type[kind]
+        targets = target.points[choices]
+        batch = max(1, 131072 // len(choices))
+        for start in range(0, len(indices), batch):
+            part = indices[start:start + batch]
+            distances = np.abs(points[part, None] - targets)
+            nearest = distances.argmin(axis=1)
+            if np.any(distances[np.arange(len(part)), nearest] > limit):
+                return None
+            mapped[part] = choices[nearest]
+    if len(set(mapped)) != len(mapped):
+        return None
+    cycles = Counter(_face_cycle(tuple(mapped[i] for i in face)) for face in source.faces)
+    return mapped if cycles == target.face_cycles else None
+
+
+def match_islands(source, target, tolerance, flags=0, anchors=()):
+    """Find a similarity that agrees with both geometry and internal UV topology."""
+    a, b = source.topology, target.topology
+    if a.signature != b.signature:
+        return None
+
+    def evaluate(transform, limit):
+        matched = vertex_correspondence(a, b, transform, 2 * limit)
+        if matched is None:
+            return math.inf, transform
+        target_points = b.points[matched]
+        fitted = _fit(a.points, target_points, flags, anchors)
+        return float(np.max(np.abs(fitted(a.points) - target_points))), fitted
+
+    return find_match(source.contour, target.contour, tolerance, flags, anchors, evaluate)
+
+
+def stretch_percent(spatial_triangles, uv_triangles, aspect):
+    """Report the largest directional stretch relative to the least stretched direction."""
+    peak = None
+    for (a, b, c), (u, v, w) in zip(spatial_triangles, uv_triangles):
+        edge, other = b - a, c - a
+        length = edge.length
+        cross_length = edge.cross(other).length
+        if length == 0 or cross_length == 0:
+            continue
+        first = v - u
+        second = w - u - first * (edge.dot(other) / (length * length))
+        first /= length
+        second *= length / cross_length
+        first = complex(first.real * aspect, first.imag)
+        second = complex(second.real * aspect, second.imag)
+        determinant = abs((first.conjugate() * second).imag)
+        if determinant == 0:
+            return math.inf
+        # The singular-value ratio equals the largest squared singular value / |det|.
+        diagonal = abs(first)**2 - abs(second)**2
+        off_diagonal = 2 * (first.conjugate() * second).real
+        largest = (abs(first)**2 + abs(second)**2 + math.hypot(diagonal, off_diagonal)) / 2
+        percent = 100 * max(0.0, largest / determinant - 1)
+        peak = percent if peak is None else max(peak, percent)
+    return peak
