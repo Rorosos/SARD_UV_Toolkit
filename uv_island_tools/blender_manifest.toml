@@ -1,9 +1,9 @@
 schema_version = "1.0.0"
 id = "uv_island_tools"
-version = "1.4.0"
-name = "UV Island Tools"
-tagline = "Pack, stack and lock UV islands with CPU and GPU"
-maintainer = "UV Island Tools contributors"
+version = "1.5.0"
+name = "SARD UV Toolkit"
+tagline = "Pack, inspect and organize UV islands"
+maintainer = "SARD UV Toolkit contributors"
 type = "add-on"
 blender_version_min = "5.3.0"
 license = ["SPDX:GPL-3.0-or-later"]

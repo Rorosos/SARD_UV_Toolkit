@@ -52,7 +52,7 @@ class CudaDriver:
     def call(function, *args):
         result = function(*args)
         if result:
-            raise GPUUnavailable(f"CUDA {function.__name__}: код {result}")
+            raise GPUUnavailable(f"CUDA {function.__name__}: error {result}")
 
     @contextmanager
     def context(self, handle):
@@ -83,7 +83,7 @@ class CudaBackend(BatchedBackend):
                 driver.call(driver.cuModuleGetFunction, C.byref(self.kernel), self.module, b"uvit_candidates")
         except (OSError, AttributeError, GPUUnavailable) as error:
             self.close()
-            raise GPUUnavailable(f"CUDA недоступна: {error}") from error
+            raise GPUUnavailable(f"CUDA unavailable: {error}") from error
 
     def find(self, board, candidates):
         if not candidates:

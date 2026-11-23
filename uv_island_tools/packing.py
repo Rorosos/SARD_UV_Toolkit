@@ -45,11 +45,11 @@ class PackConfig:
 
     def validate(self):
         if 2 * self.border >= self.short_side:
-            raise ValueError("Поле от края занимает весь UV-тайл")
+            raise ValueError("The border takes up the entire UV tile.")
         if self.gap > self.short_side:
-            raise ValueError("Зазор превышает меньшую сторону текстуры")
+            raise ValueError("The gap exceeds the shorter side of the texture.")
         if not 1 <= self.passes <= 1000:
-            raise ValueError("Задайте от 1 до 1000 проходов")
+            raise ValueError("Set the number of passes to 1–1000.")
 
     @property
     def long_side(self):

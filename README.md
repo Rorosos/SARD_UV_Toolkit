@@ -1,63 +1,43 @@
-# UV Island Tools
+# SARD UV Toolkit
 
-Расширение Blender для плотной упаковки UV-островов, поиска растяжения и работы с кластерами. Упаковщик сравнивает варианты размещения в тайле 0–1 с учётом формы островов, их фиксаций и отступов в пикселях.
+A Blender extension for dense UV packing, island diagnostics, and UV cluster management.
 
-**[Скачать UV Island Tools 1.4.0 (ZIP)](https://raw.githubusercontent.com/Rorosos/UV-island-pack-tools-/main/downloads/uv_island_tools-1.4.0.zip)**
+AI-assisted coding
 
-## Пример на модели Hive
+**[Download SARD UV Toolkit 1.5.0 (ZIP)](https://raw.githubusercontent.com/Rorosos/UV-island-pack-tools-/main/downloads/sard_uv_toolkit-1.5.0.zip)**
 
-<img src="docs/images/hive-models.jpg" width="400" alt="Две копии модели Hive в окне Blender">
+## Installation
 
-UV-развёртки двух копий модели показаны в одинаковом масштабе. Для сравнения использовалась версия UV Island Tools 1.3.0.
+1. Download the ZIP.
+2. In Blender, open **Edit → Preferences → Get Extensions**.
+3. Open the menu in the upper-right corner, choose **Install from Disk…**, and select the ZIP.
+4. Open a mesh with a UV map in **Edit Mode**. Press `N` in the **UV Editor** and open **SARD UV Toolkit**.
 
-| Blender Smart UV Project | UV Island Tools |
+Use the language selector in the sidebar or the extension preferences. Available languages are English, Simplified Chinese, Hindi, Spanish, Arabic, French, Armenian, Brazilian Portuguese, and Russian.
+
+## UV diagnostics
+
+Open **UV Diagnostics** in the toolkit sidebar and run either check on visible UVs.
+
+| Tool | What it selects |
 | --- | --- |
-| <img src="docs/images/hive-smart-uv.jpg" width="420" alt="Развёртка Hive после Smart UV Project"> | <img src="docs/images/hive-plugin-uv.jpg" width="420" alt="Развёртка Hive после упаковки в UV Island Tools"> |
+| **Find Stray Vertices** | Redundant vertices on straight mesh edges of N-gons. A candidate connects exactly two mesh edges. **Angle tolerance** controls how far the two edges may deviate from a straight line. |
+| **Find UV Self-Intersections** | UV islands containing crossed polygon edges or overlapping triangle interiors within the same island. |
 
-## Установка
+On the separate **UV Stretch** tab, set **Threshold** and choose **Find Stretched Islands**. The table lists visible islands at or above that percentage. Use the eye button to exclude an island from automatic selection while keeping it in the table. The ignore flag is saved per UV map.
 
-1. Скачайте ZIP по ссылке выше. Архив можно установить целиком.
-2. В Blender откройте **Edit → Preferences → Get Extensions**.
-3. В меню со стрелкой в правом верхнем углу выберите **Install from Disk…** и укажите файл `uv_island_tools-1.4.0.zip`.
+Stretch is the largest directional scale difference on any triangle in the island, accounting for texture aspect ratio. A value of `0%` indicates equal scale in every direction. A collapsed UV triangle can report `∞`.
 
-## Как пользоваться
+## Packing, Snap, and clusters
 
-1. Откройте меш с UV-развёрткой в **Edit Mode**. В **UV Editor** нажмите `N` и откройте вкладку **UV Island Tools**.
-2. Выделите острова, задайте разрешение текстуры, зазор между островами и поле от края тайла.
-3. Нажмите **Упаковать острова**. По умолчанию расширение проверяет **100 проходов** с разными позициями, углами и порядком размещения. `Esc` отменяет поиск, `Ctrl+Z` отменяет применённую упаковку.
+- **Pack Islands** evaluates different positions, angles, and island orders. It defaults to 100 passes and supports 1–1000. If the current placement is unsuitable, the packer tries randomized starts while honoring locks and padding. Press `Esc` to stop the search or `Ctrl+Z` to undo an applied layout.
+- **Select Similar** compares the number, positions, and connections of UV vertices, including those inside the outline. **Snap** aligns matching vertices to the reference and keeps the islands stacked during packing.
+- **Merge into Cluster** creates a cluster, adds islands, or merges selected clusters. The **UV Clusters** table lets you select or disband a cluster. **Remove Selected** takes specific islands out of it. Packing transforms the cluster as a unit, preserving the relative placement of its members. Apply Snap before clustering if you want islands to overlap exactly.
+- **Rotation**, **Size**, and **Position** are independent locks. Unlocked sizes are normalized by 3D surface area. **Overall scale** lets the packer adjust the shared scale to improve tile usage. A member's locks constrain its cluster.
 
-- **Выбрать схожие** сравнивает количество, положение и связи UV-вершин на контуре и внутри острова. Допуск задаётся в процентах от диагонали эталона.
-- **Snap** совмещает соответствующие UV-вершины в точных координатах эталона. При упаковке группа перемещается вместе. Кнопка **Снять Snap** позволяет упаковывать участников по отдельности.
-- **Поворот**, **Размер** и **Положение** независимо фиксируют угол, масштаб или центр острова.
+### Texture sizes and padding
 
-<details>
-<summary>Снимок панели UV Island Tools 1.3.0</summary>
-
-<img src="docs/images/uv-island-tools-panel.png" width="188" alt="Панель UV Island Tools 1.3.0 с настройками упаковки, Snap и фиксациями">
-
-</details>
-
-## Кластеры UV
-
-Раскройте **Кластеры UV** на вкладке **UV Island Tools**. Выделите острова и нажмите **Объединить в кластер**. Чтобы добавить участников или слить существующие кластеры, выделите новые острова и по одному острову из каждого нужного кластера, затем нажмите ту же кнопку.
-
-Из таблицы можно выделить и расформировать кластер. Кнопка **Убрать выделенные** исключает выбранных участников. После открытия файла или смены UV-карты список можно обновить кнопкой со стрелкой.
-
-При упаковке кластер перемещается как один остров и сохраняет взаимное расположение участников. Фиксация участника ограничивает весь кластер. Для наложения островов выполните **Snap** перед добавлением в кластер.
-
-## Растяжение UV
-
-На отдельной вкладке **UV Stretch** задайте порог и нажмите **Найти растянутые острова**. В таблицу попадут видимые острова с растяжением от заданного процента включительно. Кнопка с глазом исключает остров из автовыделения и оставляет его строку в таблице. Пометка сохраняется для текущей UV-карты.
-
-Процент показывает, насколько масштаб UV в наиболее растянутом направлении больше масштаба в наименее растянутом. Для острова берётся максимум по треугольникам с учётом пропорций текстуры. При `0%` масштаб одинаков по всем направлениям. Схлопнутый UV-треугольник даёт `∞`.
-
-## Настройки упаковки
-
-Острова без фиксации размера приводятся к общей плотности по 3D-площади. Кластер масштабируется целиком. При неподходящей исходной раскладке упаковщик пробует случайные стартовые позиции с учётом фиксаций и отступов.
-
-### Отступы и разрешение
-
-| Пресет | Зазор между островами | Поле от края тайла |
+| Preset | Gap between islands | Border |
 | --- | ---: | ---: |
 | 512 × 512 | 4 px | 2 px |
 | 1024 × 1024 | 8 px | 4 px |
@@ -65,16 +45,26 @@ UV-развёртки двух копий модели показаны в од�
 | 4096 × 4096 | 32 px | 16 px |
 | 8192 × 8192 | 64 px | 32 px |
 
-Отступы можно менять независимо. Для прямоугольных текстур выберите **Своё разрешение** и задайте ширину и высоту. Число проходов можно настроить от 1 до 1000. При включённой настройке **Общий масштаб** расширение выбирает допустимый вариант с наибольшим общим масштабом среди проверенных.
+Both margins are editable in pixels. Choose **Custom resolution** for rectangular textures.
 
-## Требования
+## Hive packing example
 
-- **Blender 5.3.0 или новее.** Сборка проверена на Blender 5.3.0 под Windows x64.
-- **CPU.** Расширение включает нативный модуль для Windows x64 и резервный расчёт на Python.
-- **GPU.** Доступны вычислительный шейдер Blender через OpenGL или Vulkan, гибридный режим CPU + GPU и CUDA для совместимых видеокарт и драйверов NVIDIA. CUDA-модуль входит в ZIP. Режим **Авто** выбирает подходящий вариант.
+<img src="docs/images/hive-models.jpg" width="400" alt="Two copies of the Hive model in Blender">
 
-## Исходники и обратная связь
+The UV layouts use the same view scale. The toolkit capture is from version 1.3.0, when the extension was called UV Island Tools.
 
-Код, `__init__.py` и команды пересборки находятся в [каталоге расширения](uv_island_tools/). О проблемах и предложениях можно сообщить в [Issues](https://github.com/Rorosos/UV-island-pack-tools-/issues).
+| Blender Smart UV Project | Toolkit packing (1.3.0) |
+| --- | --- |
+| <img src="docs/images/hive-smart-uv.jpg" width="420" alt="Hive UV layout after Blender Smart UV Project"> | <img src="docs/images/hive-plugin-uv.jpg" width="420" alt="Hive UV layout packed by the toolkit"> |
 
-Лицензия [GNU GPL-3.0-or-later](LICENSE).
+## Requirements
+
+- **Blender 5.3.0 or newer.** Version 1.5.0 was tested with Blender 5.3.0 on Windows x64.
+- **CPU.** A native Windows x64 module is included, with a Python fallback.
+- **GPU.** Blender compute shaders support OpenGL or Vulkan. CPU + GPU hybrid mode and direct CUDA are also available. CUDA requires a compatible NVIDIA GPU and driver.
+
+## Source and feedback
+
+See the [extension source and build instructions](uv_island_tools/) or [open an issue](https://github.com/Rorosos/UV-island-pack-tools-/issues).
+
+[GNU GPL-3.0-or-later](LICENSE)

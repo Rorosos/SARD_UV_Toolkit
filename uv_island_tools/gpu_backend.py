@@ -138,7 +138,7 @@ def _atlas(rows):
     width = max(1, min(max_width, count))
     height = max(1, (count + width - 1) // width)
     if height > 4096:
-        raise GPUUnavailable("геометрия превышает размер буфера GPU")
+        raise GPUUnavailable("geometry exceeds the GPU buffer size")
     if count == width * height:
         values = np.ascontiguousarray(rows, dtype=np.float32)
     else:
@@ -241,12 +241,12 @@ class BatchedBackend:
         except GPUUnavailable:
             raise
         except Exception as error:
-            raise GPUUnavailable("сбой при проверке геометрии на GPU") from error
+            raise GPUUnavailable("GPU geometry check failed") from error
 
     def eligible_indices(self, board, shapes, positions, board_count, count, gap_sq):
         valid = self.dispatch(board, shapes, positions, board_count, count, gap_sq)
         if len(valid) != count or not np.all((valid == 0) | (valid == 1)):
-            raise GPUUnavailable("GPU вернул недопустимый результат проверки")
+            raise GPUUnavailable("GPU returned an invalid geometry check result")
         return np.flatnonzero(valid)
 
     def close(self):
@@ -272,7 +272,7 @@ class GPUBackend(BatchedBackend):
             self.shader = gpu.shader.create_from_info(info)
             super().__init__(f"GPU ({gpu.platform.backend_type_get()})")
         except Exception as error:
-            raise GPUUnavailable("не удалось создать вычислительный шейдер") from error
+            raise GPUUnavailable("could not create the compute shader") from error
 
     def upload(self, _name, rows):
         return _atlas(rows)

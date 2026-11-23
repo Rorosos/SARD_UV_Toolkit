@@ -12,7 +12,7 @@ class NativeCPUBackend(BatchedBackend):
     def __init__(self):
         super().__init__("CPU (native)")
         if os.name != "nt" or platform.machine().lower() not in {"amd64", "x86_64"}:
-            raise GPUUnavailable("нативный CPU доступен на Windows x64")
+            raise GPUUnavailable("native CPU is available on Windows x64")
         try:
             path = Path(__file__).with_name("uvit_cpu_win64.dll")
             self.lib = C.CDLL(str(path))
@@ -20,7 +20,7 @@ class NativeCPUBackend(BatchedBackend):
             self.first.argtypes = [C.c_void_p, C.c_void_p, C.c_void_p, C.c_int, C.c_int, C.c_float]
             self.first.restype = C.c_int
         except (OSError, AttributeError) as error:
-            raise GPUUnavailable("не удалось загрузить нативный CPU-модуль") from error
+            raise GPUUnavailable("could not load the native CPU module") from error
 
     def upload(self, _name, rows):
         return rows
@@ -34,6 +34,6 @@ class NativeCPUBackend(BatchedBackend):
             if index < 0:
                 return
             if index >= count - start:
-                raise GPUUnavailable("нативный CPU вернул недопустимый индекс позиции")
+                raise GPUUnavailable("native CPU returned an invalid placement index")
             yield start + index
             start += index + 1

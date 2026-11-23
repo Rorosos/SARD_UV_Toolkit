@@ -12,6 +12,7 @@ import bmesh
 import bpy
 
 from .geometry import POSITION, UVTopology, area_center, contour_from_edges, distinct_anchors
+from .i18n import tr
 from .packing import Unit
 
 
@@ -238,7 +239,7 @@ def _mesh_islands(obj, settings):
             coordinate = loop[uv].uv
             point = complex(*coordinate)
             if not isfinite(point.real) or not isfinite(point.imag):
-                raise ValueError(f"Некорректные UV-координаты в объекте {mesh.name_full}")
+                raise ValueError(tr("Invalid UV coordinates in {mesh}.", mesh=mesh.name_full))
             points[loop] = point
         for loop in face.loops:
             a, b = points[loop], points[loop.link_loop_next]
