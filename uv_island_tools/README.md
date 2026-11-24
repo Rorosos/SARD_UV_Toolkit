@@ -2,7 +2,7 @@
 
 SARD UV Toolkit is a Blender 5.3+ extension for packing, inspecting, and organizing UV islands. Install the ZIP from **Edit → Preferences → Get Extensions → Install from Disk…**. In the UV Editor's `N` sidebar, open **SARD UV Toolkit** or **UV Stretch**.
 
-The [project README](https://github.com/Rorosos/UV-island-pack-tools-) explains the tools, shows a Hive packing example, and links to the current installer. The extension ID `uv_island_tools` is used for upgrades from the earlier UV Island Tools builds.
+The [project README](https://github.com/Rorosos/SARD_UV_Toolkit) explains the tools, shows a Hive packing example, and links to the current installer. The extension ID `uv_island_tools` is used for upgrades from the earlier UV Island Tools builds.
 
 ## Source layout
 

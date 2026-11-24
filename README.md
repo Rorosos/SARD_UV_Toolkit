@@ -4,7 +4,7 @@ A Blender extension for dense UV packing, island diagnostics, and UV cluster man
 
 AI-assisted coding
 
-**[Download SARD UV Toolkit 1.5.0 (ZIP)](https://raw.githubusercontent.com/Rorosos/UV-island-pack-tools-/main/downloads/sard_uv_toolkit-1.5.0.zip)**
+**[Download SARD UV Toolkit 1.5.0 (ZIP)](https://raw.githubusercontent.com/Rorosos/SARD_UV_Toolkit/main/downloads/sard_uv_toolkit-1.5.0.zip)**
 
 ## Installation
 
@@ -65,6 +65,6 @@ The UV layouts use the same view scale. The toolkit capture is from version 1.3.
 
 ## Source and feedback
 
-See the [extension source and build instructions](uv_island_tools/) or [open an issue](https://github.com/Rorosos/UV-island-pack-tools-/issues).
+See the [extension source and build instructions](uv_island_tools/) or [open an issue](https://github.com/Rorosos/SARD_UV_Toolkit/issues).
 
 [GNU GPL-3.0-or-later](LICENSE)
