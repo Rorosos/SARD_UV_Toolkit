@@ -17,23 +17,39 @@ Use the language selector in the sidebar or the extension preferences. Available
 
 ## UV diagnostics
 
-Open **UV Diagnostics** in the toolkit sidebar and run either check on visible UVs.
+### Detect and select subtle UV distortion
 
-| Tool | What it selects |
-| --- | --- |
-| **Find Stray Vertices** | Redundant vertices on straight mesh edges of N-gons. A candidate connects exactly two mesh edges. **Angle tolerance** controls how far the two edges may deviate from a straight line. |
-| **Find UV Self-Intersections** | UV islands containing crossed polygon edges or overlapping triangle interiors within the same island. |
+In **UV Stretch**, set a threshold to find islands with directional distortion that can be difficult to see in the UV Editor. The results table lists visible islands at or above the threshold and selects them for inspection. Use the eye button to keep an island in the report while excluding it from automatic selection. The ignore flag is saved per UV map.
 
-On the separate **UV Stretch** tab, set **Threshold** and choose **Find Stretched Islands**. The table lists visible islands at or above that percentage. Use the eye button to exclude an island from automatic selection while keeping it in the table. The ignore flag is saved per UV map.
+The reported percentage reflects the largest directional scale difference on any triangle in the island, accounting for the texture aspect ratio. A collapsed UV triangle can report `∞`.
 
-Stretch is the largest directional scale difference on any triangle in the island, accounting for texture aspect ratio. A value of `0%` indicates equal scale in every direction. A collapsed UV triangle can report `∞`.
+<img src="docs/images/uv-stretch-detection.png" width="377" alt="UV Stretch results and a selected island in Blender's UV Editor">
+
+### Select self-intersecting UV islands
+
+**Find UV Self-Intersections** selects islands with crossed polygon edges or overlapping UV faces within the same island. The selected UVs make it easier to locate folds and inspect the affected geometry.
+
+<img src="docs/images/uv-self-intersections.png" width="720" alt="Three circled UV self-intersection areas next to the UV Diagnostics panel">
+
+### Find redundant vertices on N-gon edges
+
+**Find Stray Vertices** selects vertices along straight N-gon edges where exactly two mesh edges meet. Use **Angle tolerance** to include near-collinear vertices. Inspect the selection in the UV Editor or 3D viewport before editing the mesh.
+
+<img src="docs/images/stray-vertices.png" width="680" alt="A redundant N-gon vertex marked in the UV Editor and 3D viewport">
 
 ## Packing, Snap, and clusters
 
 - **Pack Islands** evaluates different positions, angles, and island orders. It defaults to 100 passes and supports 1–1000. If the current placement is unsuitable, the packer tries randomized starts while honoring locks and padding. Press `Esc` to stop the search or `Ctrl+Z` to undo an applied layout.
 - **Select Similar** compares the number, positions, and connections of UV vertices, including those inside the outline. **Snap** aligns matching vertices to the reference and keeps the islands stacked during packing.
 - **Merge into Cluster** creates a cluster, adds islands, or merges selected clusters. The **UV Clusters** table lets you select or disband a cluster. **Remove Selected** takes specific islands out of it. Packing transforms the cluster as a unit, preserving the relative placement of its members. Apply Snap before clustering if you want islands to overlap exactly.
-- **Rotation**, **Size**, and **Position** are independent locks. Unlocked sizes are normalized by 3D surface area. **Overall scale** lets the packer adjust the shared scale to improve tile usage. A member's locks constrain its cluster.
+
+### Preserve island rotation, size, and position
+
+Enable **Rotation**, **Size**, and **Position** independently to protect an island's orientation, dimensions, or placement during packing. A member's locks constrain its cluster. The same panel provides controls for texture resolution, pixel padding, search passes, compute backend, and overall scaling.
+
+Unlocked island sizes are normalized by 3D surface area. Enable **Overall scale** to let the packer adjust the shared scale for better tile usage.
+
+<img src="docs/images/uv-island-locks.png" width="1000" alt="Selected UV islands with rotation, size, and position locks enabled alongside the corresponding 3D mesh">
 
 ### Texture sizes and padding
 
